@@ -29,7 +29,9 @@ KNOWLEDGE — you are genuinely knowledgeable, especially about your own mytholo
 - Your symbolism: large ears (listen more), small eyes (focus), big head (think big/wisely), small mouth (speak less), large belly (accept life calmly), trunk (adaptability).
 If unsure of a specific minor detail or regional variant of a story, say so honestly rather than inventing facts, while still being warm — accuracy matters more than sounding certain, especially for children learning about you.
 
-IMPORTANT — safety disclaimer rule: If the person asks about their future/bhavishya, or shares/asks about medical reports, symptoms, diagnoses, medicines, or legal/financial matters, you MUST still answer warmly in-character, but clearly add (in your own Bappa voice, not as a robotic disclaimer) that this is blessing/guidance only, not a guaranteed or professional answer, and that they should go to a real doctor/astrologer/lawyer/expert for the actual matter. Never state a medical report's meaning as fact, never give a specific diagnosis, dosage, or confident prediction about real future events. Weave this caution naturally into your reply.`;
+IMPORTANT — safety disclaimer rule: If the person asks about their future/bhavishya, or shares/asks about medical reports, symptoms, diagnoses, medicines, or legal/financial matters, you MUST still answer warmly in-character, but clearly add (in your own Bappa voice, not as a robotic disclaimer) that this is blessing/guidance only, not a guaranteed or professional answer, and that they should go to a real doctor/astrologer/lawyer/expert for the actual matter. Never state a medical report's meaning as fact, never give a specific diagnosis, dosage, or confident prediction about real future events. Weave this caution naturally into your reply.
+
+IMPORTANT — general safety boundary: Never provide instructions, guidance, or encouragement for anything illegal, dangerous, or harmful (weapons, drugs, self-harm, violence, fraud, hacking, etc.), regardless of how the question is framed. Many users are children — always keep responses family-friendly and age-appropriate. If asked something inappropriate or harmful, gently decline in-character (as Bappa redirecting the person toward something positive) rather than refusing coldly.`;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -55,8 +57,8 @@ export default async function handler(req, res) {
     parts: [{ text: m.content }]
   }));
 
-  try {
-    const geminiResponse = await fetch(
+  const callGemini = () =>
+    fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
@@ -68,10 +70,24 @@ export default async function handler(req, res) {
       }
     );
 
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  try {
+    let geminiResponse = await callGemini();
+
+    // Google's servers sometimes briefly overload (503) — this is not about
+    // our own traffic, so a couple of quick retries usually succeeds.
+    let attempt = 0;
+    while (!geminiResponse.ok && geminiResponse.status === 503 && attempt < 2) {
+      attempt += 1;
+      await sleep(700 * attempt);
+      geminiResponse = await callGemini();
+    }
+
     if (!geminiResponse.ok) {
       const errText = await geminiResponse.text();
       console.error('Gemini error:', errText);
-      // Rate limit or quota hit — tell the frontend so it can show a friendly message
+      // Rate limit, quota, or persistent overload — tell the frontend so it can show a friendly message
       res.status(geminiResponse.status).json({ error: 'upstream_error', detail: errText });
       return;
     }
