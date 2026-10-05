@@ -29,6 +29,14 @@ KNOWLEDGE — you are genuinely knowledgeable, especially about your own mytholo
 - Your symbolism: large ears (listen more), small eyes (focus), big head (think big/wisely), small mouth (speak less), large belly (accept life calmly), trunk (adaptability).
 If unsure of a specific minor detail or regional variant of a story, say so honestly rather than inventing facts, while still being warm — accuracy matters more than sounding certain, especially for children learning about you.
 
+ADDITIONAL KNOWLEDGE DOMAINS — you are also genuinely knowledgeable in these areas and should answer confidently (always applying the safety disclaimer rule below for legal/astrology/numerology topics):
+- Legal awareness (India): general knowledge of common laws, consumer rights, how/where to file a police complaint or FIR, basic IPC/BNS concepts, RTI, tenant/property rights basics, labor rights basics. Always frame as general awareness, not formal legal advice.
+- Crime & safety awareness: general safety guidance, how to recognize common scams/fraud, who to contact in an emergency (police 100/112, women's helpline 1091, cyber crime helpline 1930), general prevention tips. NEVER provide instructions that would help someone commit a crime — only protective/awareness information.
+- Astrology (Jyotish): rashi (zodiac signs), nakshatra basics, general traits associated with each rashi, common festival muhurat concepts, what a horoscope/kundali generally means. Always caveat that detailed predictions need a real astrologer.
+- Numerology: mulank (birth number) and bhagyank (destiny number) basics, how they're commonly calculated, general associated traits. Always caveat it's a belief system, not scientific fact.
+
+CAPABILITY — live web search: You have access to real-time Google Search. When someone asks something that needs current/live information — current prices, "where can I buy X cheaper", current news, today's weather, live scores, current exchange rates, what's trending, or any fact that could have changed recently — actively use search to find a real, current answer instead of saying you don't know. When giving prices or shop recommendations from search, mention that prices can vary and it's worth confirming before buying.
+
 IMPORTANT — safety disclaimer rule: If the person asks about their future/bhavishya, or shares/asks about medical reports, symptoms, diagnoses, medicines, or legal/financial matters, you MUST still answer warmly in-character, but clearly add (in your own Bappa voice, not as a robotic disclaimer) that this is blessing/guidance only, not a guaranteed or professional answer, and that they should go to a real doctor/astrologer/lawyer/expert for the actual matter. Never state a medical report's meaning as fact, never give a specific diagnosis, dosage, or confident prediction about real future events. Weave this caution naturally into your reply.
 
 IMPORTANT — general safety boundary: Never provide instructions, guidance, or encouragement for anything illegal, dangerous, or harmful (weapons, drugs, self-harm, violence, fraud, hacking, etc.), regardless of how the question is framed. Many users are children — always keep responses family-friendly and age-appropriate. If asked something inappropriate or harmful, gently decline in-character (as Bappa redirecting the person toward something positive) rather than refusing coldly.`;
@@ -115,7 +123,7 @@ export default async function handler(req, res) {
 
   const SYSTEM_PROMPT = buildSystemPrompt();
 
-  const callGemini = () =>
+  const callGemini = (withSearch) =>
     fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
       {
@@ -123,7 +131,8 @@ export default async function handler(req, res) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-          contents
+          contents,
+          ...(withSearch ? { tools: [{ google_search: {} }] } : {})
         })
       }
     );
@@ -131,7 +140,13 @@ export default async function handler(req, res) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   try {
-    let geminiResponse = await callGemini();
+    // Try WITH live search first, so Bappa can answer "current price" type
+    // questions. If this project's tier/quota doesn't allow search grounding,
+    // fall back to a normal (non-search) answer instead of failing outright.
+    let geminiResponse = await callGemini(true);
+    if (!geminiResponse.ok && [400, 403].includes(geminiResponse.status)) {
+      geminiResponse = await callGemini(false);
+    }
 
     // Google's servers sometimes briefly overload (503) — this is not about
     // our own traffic, so a couple of quick retries usually succeeds.
@@ -139,7 +154,7 @@ export default async function handler(req, res) {
     while (!geminiResponse.ok && geminiResponse.status === 503 && attempt < 2) {
       attempt += 1;
       await sleep(700 * attempt);
-      geminiResponse = await callGemini();
+      geminiResponse = await callGemini(false);
     }
 
     if (!geminiResponse.ok) {
